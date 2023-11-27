@@ -18,17 +18,12 @@ type RoundRobin struct {
 // NextService implements LoadBalancer.
 func (rr *RoundRobin) NextService() *Service {
 	var service *Service
-	idx := rr.current.Add(1)
-	iterations := 0
+	idx := rr.current.Load()
 	for {
-		if iterations == len(rr.services) {
-			log.Println("couldn't find an healthy service")
-			return nil
-		}
 		service = rr.services[int(idx%uint32(len(rr.services)))]
 
 		if service.GetServiceStatus() {
-			log.Println("service", service.URL, idx)
+			idx = rr.current.Add(1)
 			return service
 		}
 		idx = rr.current.Add(1)
@@ -37,7 +32,6 @@ func (rr *RoundRobin) NextService() *Service {
 
 func (rr *RoundRobin) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	nextService := rr.NextService()
-	log.Println("next service", nextService.URL.Host)
 	if nextService == nil {
 		log.Fatal("load balancer doesn't have any healthy services")
 	}

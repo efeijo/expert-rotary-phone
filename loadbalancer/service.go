@@ -16,12 +16,12 @@ type Service struct {
 func (s *Service) SetServiceStatus(alive bool) {
 	s.mu.Lock()
 	s.Alive = alive
-	defer s.mu.Unlock()
+	s.mu.Unlock()
 }
 
 func (s *Service) GetServiceStatus() bool {
 	s.mu.Lock()
 	alive := s.Alive
-	defer s.mu.Unlock()
+	s.mu.Unlock()
 	return alive
 }

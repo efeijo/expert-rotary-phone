@@ -15,6 +15,6 @@ func main() {
 			w.Write([]byte("Hey foscasse"))
 		}))
 	}()
-	http.ListenAndServe(":9090", http.HandlerFunc(rp.ServeHTTP))
+	http.ListenAndServe(":9090", rp)
 
 }

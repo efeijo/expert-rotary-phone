@@ -1,21 +1,24 @@
 package loadbalancer
 
 import (
-	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRoundRobinLoadBalancer(t *testing.T) {
 
 	t.Run("", func(t *testing.T) {
-		//ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// Setup
 		urls := []string{
 			"http://localhost:8090",
@@ -25,50 +28,56 @@ func TestRoundRobinLoadBalancer(t *testing.T) {
 
 		services := make([]*Service, 0, len(urls))
 
-		for i, stringUrl := range urls {
+		for _, stringUrl := range urls {
 			u, err := url.Parse(stringUrl)
 			if err != nil {
 				t.Error(err)
 			}
-			reverseProxy := &httputil.ReverseProxy{
-				Rewrite: func(pr *httputil.ProxyRequest) {
-					buf := bytes.NewBufferString(fmt.Sprintf("server %d", i))
-					pr.Out.Write(buf)
-				},
-			}
+			reverseProxy := httputil.NewSingleHostReverseProxy(u)
 
 			services = append(services, &Service{
 				URL:          u,
 				ReverseProxy: reverseProxy,
 				Alive:        true,
 			})
-			go func(u *url.URL, reverseProxy *httputil.ReverseProxy) {
-				log.Println(u.Host)
-				log.Fatal(http.ListenAndServe(u.Host, reverseProxy))
-			}(u, reverseProxy)
+			go func(ctx context.Context, u *url.URL, reverseProxy *httputil.ReverseProxy) {
+				server := http.Server{Addr: u.Host, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Write([]byte(u.String()))
+				})}
+				go func() {
+					log.Fatal(server.ListenAndServe())
+				}()
+
+				<-ctx.Done()
+				server.Shutdown(ctx)
+			}(ctx, u, reverseProxy)
 		}
 
 		// End Setup
 
-		go func(services []*Service) {
-			log.Fatal(http.ListenAndServe(":8080", &RoundRobin{
+		go func(ctx context.Context, services []*Service) {
+			server := http.Server{Addr: ":8080", Handler: &RoundRobin{
 				services: services,
-			}))
-		}(services)
+			}}
 
-		/* for i := 0; i < 6; i++ {
+			go func() {
+				log.Fatal(server.ListenAndServe())
+			}()
 
+			<-ctx.Done()
+			server.Shutdown(ctx)
+		}(ctx, services)
+
+		for i := 0; i < 3; i++ {
 			resp, err := http.Get("http://localhost:8080")
 			assert.NoError(t, err)
 			b, err := io.ReadAll(resp.Body)
 			assert.NoError(t, err)
+			assert.Equal(t, urls[i], string(b))
 			fmt.Println(string(b))
 			time.Sleep(500 * time.Millisecond)
+		}
 
-		} */
-
-		time.Sleep(30 * time.Second)
-		os.Exit(1)
 	})
 
 }
